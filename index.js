@@ -18,7 +18,7 @@ async function startAnasBot() {
 
     // --- ميزة الكود الرقمي (Pairing Code) ---
     if (!sock.authState.creds.registered) {
-        const myNumber = "263785728093"; // رقمك اللي هيشغل البوت
+        const myNumber = "201556853817"; // رقمك اللي هيشغل البوت
         await delay(5000);
         const code = await sock.requestPairingCode(myNumber);
         console.log(`\n\n----------------------------\nكود الربط بتاعك هو: ${code}\n----------------------------\n\n`);
