@@ -1,6 +1,5 @@
-const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, delay } = require("@whiskeysockets/baileys");
 const pino = require("pino");
-const qrcode = require("qrcode-terminal");
 
 const warnings = {}; 
 const badWords = ["خول", "عرص", "منيك", "شرموط", "كسمك", "خوال"]; 
@@ -13,37 +12,49 @@ async function startAnasBot() {
         version,
         auth: state,
         logger: pino({ level: "silent" }),
+        printQRInTerminal: false, // لغينا الـ QR عشان يبعت كود رقمي
         browser: ["Anas Guard", "Chrome", "1.0.0"]
     });
+
+    // --- ميزة الكود الرقمي (Pairing Code) ---
+    if (!sock.authState.creds.registered) {
+        const myNumber = "201556853817"; // رقمك اللي هيشغل البوت
+        await delay(5000);
+        const code = await sock.requestPairingCode(myNumber);
+        console.log(`\n\n----------------------------\nكود الربط بتاعك هو: ${code}\n----------------------------\n\n`);
+    }
 
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on("connection.update", (update) => {
-        const { connection, qr } = update;
-        if (qr) {
-            console.clear();
-            console.log("✅ صغر الخط واعمل سكان للـ QR:");
-            qrcode.generate(qr, { small: true });
-        }
-        if (connection === "open") console.log("✅ البوت شغال (الضحك مسموح) يا أنس!");
+        const { connection } = update;
+        if (connection === "open") console.log("✅ البوت شغال يا بطل.. الجروب في أمان دلوقتي!");
     });
+
+    // --- ميزة الصلاة على النبي (تلقائي كل فترة) ---
+    setInterval(async () => {
+        const groups = Object.keys(await sock.groupFetchAllParticipating());
+        for (let gid of groups) {
+            await sock.sendMessage(gid, { text: "✨ ذكرى اليوم: صَلُّوا عَلَىٰ رَسُولِ اللَّهِ ﷺ" });
+        }
+    }, 1000 * 60 * 60 * 3); // هيبعت كل 3 ساعات تلقائياً في كل الجروبات
 
     sock.ev.on("messages.upsert", async (m) => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
 
         const remoteJid = msg.key.remoteJid;
-        if (!remoteJid.endsWith('@g.us')) return;
-
         const sender = msg.key.participant || msg.key.remoteJid;
         const messageType = Object.keys(msg.message)[0];
-        const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
+        const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || "").toLowerCase();
 
-        // حصانة المطور
+        // حصانة المطور (أنت)
         const sudoNumber = "201556853817@s.whatsapp.net"; 
         if (sender === sudoNumber) return;
 
+        // وظيفة التعامل مع المخالفات (حذف + تحذير + طرد)
         async function handleViolation(reason) {
+            if (!remoteJid.endsWith('@g.us')) return; 
             await sock.sendMessage(remoteJid, { delete: msg.key });
             if (!warnings[sender]) warnings[sender] = 0;
             warnings[sender]++;
@@ -60,16 +71,16 @@ async function startAnasBot() {
             }
         }
 
-        // --- استثناء الضحك (عشان هههههه متتحسبش مخالفة) ---
-        const isLaughing = /^(ه)+$/i.test(text) || text.includes("هههه");
-        
-        // 1. فحص تكرار الحروف (بشرط ميكونش ضحك)
-        const longCharRegex = /(.)\1{3,}/; 
-        if (longCharRegex.test(text) && !isLaughing) {
-            return await handleViolation("تكرار الحروف 4 مرات فأكثر");
+        // 1. ميزة الاستيكر (لو حد بعت صورة وكتب تحتها "ستيكر")
+        if (messageType === 'imageMessage' && text.includes("ستيكر")) {
+            const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+            const buffer = await downloadMediaMessage(msg, 'buffer', {});
+            return await sock.sendMessage(remoteJid, { sticker: buffer }, { quoted: msg });
         }
 
-        // 2. فحص الشتائم
+        if (!remoteJid.endsWith('@g.us')) return;
+
+        // 2. فحص الشتائم (اللي في القائمة بتاعتك)
         if (badWords.some(word => text.includes(word))) {
             return await handleViolation("السب والقذف");
         }
@@ -79,13 +90,12 @@ async function startAnasBot() {
             return await handleViolation("إرسال روابط");
         }
 
-        // 4. فحص الميديا
-        const forbiddenTypes = ['imageMessage', 'videoMessage', 'stickerMessage'];
-        if (forbiddenTypes.includes(messageType)) {
-            return await handleViolation("إرسال ميديا ممنوعة");
+        // 4. فحص تكرار الحروف (تعديل للضحك)
+        const isLaughing = /^(ه)+$/i.test(text) || text.includes("هههه");
+        if (/(.)\1{4,}/.test(text) && !isLaughing) {
+            return await handleViolation("التكرار المزعج");
         }
     });
 }
 
 startAnasBot().catch(err => console.log("خطأ: " + err));
-
