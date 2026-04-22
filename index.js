@@ -6,7 +6,7 @@ const warnings = {}; // مخزن التحذيرات
 const badWords = ["خول", "عرص", "منيك", "شرموط", "كسمك", "خوال"]; // قائمة الشتايم
 
 async function startAnasBot() {
-    // 1. تنظيف أي جلسة قديمة عشان يربط معاك من أول مرة
+    // 1. تنظيف أي جلسة قديمة عشان يربط معاك من أول مرة بالرقم الجديد
     if (fs.existsSync('anas_auth')) {
         fs.rmSync('anas_auth', { recursive: true, force: true });
     }
@@ -27,15 +27,15 @@ async function startAnasBot() {
     sock.ev.on("connection.update", async (update) => {
         const { connection, qr } = update;
 
-        // 2. ميزة الرابط: لو ظهر QR هيطلعلك رابط تفتحه يظهرلك المربع واضح
+        // 2. ميزة الرابط: افتح الرابط ده من الـ Logs وهتلاقي الـ QR واضح جداً
         if (qr) {
-            console.log("\n--- افتح الرابط ده عشان تمسح الـ QR بوضوح ---");
+            console.log("\n--- الرابط الجديد لمسح الـ QR (واضح جداً) ---");
             console.log(`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
             console.log("------------------------------------------\n");
         }
 
         if (connection === "open") {
-            console.log("✅ مبروك يا أنس.. البوت ارتبط وشغال حماية دلوقتي!");
+            console.log("✅ أخيراً! البوت ارتبط بالرقم الجديد وشغال حماية دلوقتي!");
         }
     });
 
@@ -58,8 +58,8 @@ async function startAnasBot() {
         const messageType = Object.keys(msg.message)[0];
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || "").toLowerCase();
 
-        // حصانة رقمك أنت (المطور)
-        const sudoNumber = "201556853817@s.whatsapp.net"; 
+        // الرقم الجديد له حصانة كاملة (رقمك المطور)
+        const sudoNumber = "263785728093@s.whatsapp.net"; 
         if (sender === sudoNumber) return;
 
         // 4. ميزة الاستيكر (ابعت صورة واكتب تحتها ستيكر)
@@ -71,7 +71,7 @@ async function startAnasBot() {
 
         if (!remoteJid.endsWith('@g.us')) return;
 
-        // وظيفة التعامل مع المخالفات (حذف + تحذير + طرد)
+        // وظيفة الحذف والتحذير والطرد
         async function handleViolation(reason) {
             await sock.sendMessage(remoteJid, { delete: msg.key });
             if (!warnings[sender]) warnings[sender] = 0;
@@ -89,22 +89,10 @@ async function startAnasBot() {
             }
         }
 
-        // فحص الشتائم
-        if (badWords.some(word => text.includes(word))) {
-            return await handleViolation("السب والقذف");
-        }
-
-        // فحص الروابط
-        if (/(https?:\/\/[^\s]+)/g.test(text)) {
-            return await handleViolation("إرسال روابط");
-        }
-
-        // فحص تكرار الحروف (مع استثناء الضحك)
-        const isLaughing = /^(ه)+$/i.test(text) || text.includes("هههه");
-        if (/(.)\1{4,}/.test(text) && !isLaughing) {
-            return await handleViolation("التكرار المزعج");
-        }
+        // فحص الشتائم والروابط
+        if (badWords.some(word => text.includes(word))) return await handleViolation("السب والقذف");
+        if (/(https?:\/\/[^\s]+)/g.test(text)) return await handleViolation("إرسال روابط");
     });
 }
 
-startAnasBot().catch(err => console.log("خطأ في تشغيل البوت: " + err));
+startAnasBot().catch(err => console.log("خطأ في التشغيل: " + err));
