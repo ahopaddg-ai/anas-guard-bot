@@ -1,17 +1,13 @@
 {
   "name": "anas-guard-bot",
   "version": "1.0.0",
-  "description": "WhatsApp Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "whatsapp-web.js": "^1.23.0",
+    "@whiskeysockets/baileys": "^6.5.0",
     "qrcode-terminal": "^0.12.0",
-    "puppeteer": "^21.4.1"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "pino": "^8.16.0"
   }
 }
