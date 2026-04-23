@@ -6,8 +6,9 @@ async function startBot() {
     
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false, // قفلنا الـ QR عشان نستخدم الكود
-        logger: pino({ level: "silent" })
+        printQRInTerminal: false,
+        logger: pino({ level: "silent" }),
+        browser: ["Ubuntu", "Chrome", "20.0.04"] // تعريف المتصفح عشان واتساب يقبل الربط
     });
 
     sock.ev.on("connection.update", async (update) => {
@@ -15,25 +16,26 @@ async function startBot() {
 
         if (connection === "close") {
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log("تم قفل الاتصال، جاري إعادة المحاولة...", shouldReconnect);
             if (shouldReconnect) startBot();
         } else if (connection === "open") {
-            console.log("✅ البوت اتصل بنجاح وهو الآن شغال!");
+            console.log("✅✅ تم الاتصال بنجاح! البوت شغال الآن ✅✅");
         }
 
-        // طلب الكود فقط لما الحالة تكون "waiting" والاتصال لسه بيبدأ
-        if (!sock.authState.creds.registered && connection === "connecting") {
-            // استنى 5 ثواني للتأكد إن السوكيت جاهز
+        // طلب الكود مرة واحدة فقط عند بداية التشغيل
+        if (connection === "connecting" && !sock.authState.creds.registered) {
+            console.log("جاري التحضير لطلب كود الربط... انتظر 20 ثانية");
+            
             setTimeout(async () => {
                 try {
+                    // الرقم الخاص بك من الصورة
                     let code = await sock.requestPairingCode("263785728093");
                     console.log("************************************");
                     console.log("كود الربط الخاص بك هو: ", code);
                     console.log("************************************");
                 } catch (e) {
-                    console.log("فشل طلب الكود، السيرفر هيحاول تاني تلقائياً...");
+                    console.log("واتساب رفض الطلب حالياً.. انتظر دقيقتين وقم بعمل Restart للمشروع");
                 }
-            }, 10000);
+            }, 20000); // زيادة وقت الانتظار لـ 20 ثانية لتجنب الـ Loop
         }
     });
 
@@ -51,7 +53,7 @@ async function startBot() {
                     await sock.sendMessage(jid, { delete: msg.key });
                     await sock.groupParticipantsUpdate(jid, [msg.key.participant], "remove");
                 } catch (err) {
-                    console.log("محتاج صلاحية أدمن للطرد");
+                    // فشل الطرد غالباً لعدم وجود صلاحية أدمن
                 }
             }
         }
