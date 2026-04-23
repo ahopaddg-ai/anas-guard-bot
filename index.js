@@ -1,70 +1,75 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
-// 1. إعدادات البوت
+// 1. إعدادات المشغل (Puppeteer) - معدلة خصيصاً للسيرفرات (Railway/Heroku)
 const client = new Client({
-    authStrategy: new LocalAuth(), // لحفظ تسجيل الدخول وميخرجش كل شوية
+    authStrategy: new LocalAuth(), 
     puppeteer: {
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
+            '--disable-gpu'
+        ],
     }
 });
 
-// 2. تفعيل الربط برقم الهاتف اللي في الصورة
+// 2. طلب كود الربط (Pairing Code) للرقم الخاص بك
 client.on('qr', async (qr) => {
-    console.log('جاري طلب كود الربط لرقمك...');
+    // عرض الـ QR في الكونسول كاحتياطي
+    qrcode.generate(qr, {small: true});
+    
+    console.log('--- جاري طلب كود الربط للهاتف ---');
     try {
-        // طلب كود الربط المكون من 8 رموز
+        // الرقم اللي في الصورة: 263785728093
         let pairingCode = await client.getPairingCode('263785728093'); 
-        console.log('-----------------------------------');
+        console.log('************************************');
         console.log('كود الربط الخاص بك هو: ', pairingCode);
-        console.log('افتح الواتساب > الأجهزة المرتبطة > ربط برقم الهاتف ودخل الكود ده');
-        console.log('-----------------------------------');
+        console.log('ادخل الكود في واتساب > الأجهزة المرتبطة');
+        console.log('************************************');
     } catch (err) {
-        console.log('خطأ في توليد كود الربط، جرب مرة تانية.');
+        console.error('خطأ في توليد كود الربط: ', err);
     }
 });
 
 client.on('ready', () => {
-    console.log('تم تشغيل البوت بنجاح! هو الآن يراقب الجروبات.');
+    console.log('✅ البوت جاهز وشغال الآن على الرقم!');
 });
 
-// 3. نظام الطرد التلقائي (المراقب)
-const badWords = ['شتم1', 'شتم2', 'سب..']; // ضيف هنا الكلمات اللي عايز تمنعها
+// 3. نظام الحماية (طرد الصور، الاستيكرات، الريكوردات، والسب)
+const badWords = ['يا حمار', 'يا كلب', 'شتم1', 'سب..']; // ضيف كلماتك هنا
 
 client.on('message', async (msg) => {
     const chat = await msg.getChat();
     const contact = await msg.getContact();
 
-    // يشتغل فقط داخل الجروبات
     if (chat.isGroup) {
-        
-        // أنواع الرسائل الممنوعة (صور، استيكر، ريكورد، فيديو، ملفات)
-        const isForbiddenMedia = msg.hasMedia || 
-                                 msg.type === 'sticker' || 
-                                 msg.type === 'audio' || 
-                                 msg.type === 'ptt' || 
-                                 msg.type === 'video';
+        // تحديد أنواع الرسائل الممنوعة
+        const isMedia = msg.hasMedia; // صور، فيديوهات، ملفات
+        const isSticker = msg.type === 'sticker';
+        const isVoice = msg.type === 'audio' || msg.type === 'ptt';
+        const containsBadWords = badWords.some(word => msg.body.includes(word));
 
-        // فحص الكلمات الخارجة
-        const containsBadWords = badWords.some(word => msg.body.toLowerCase().includes(word.toLowerCase()));
-
-        if (isForbiddenMedia || containsBadWords) {
+        if (isMedia || isSticker || isVoice || containsBadWords) {
             try {
-                // حذف رسالة المخالف
+                // مسح الرسالة
                 await msg.delete(true);
 
-                // إرسال تنبيه في الجروب
-                await chat.sendMessage(`⚠️ تم طرد @${contact.id.user} بسبب إرسال محتوى ممنوع أو سب.`, {
+                // إرسال رسالة الطرد
+                await chat.sendMessage(`🚫 تم طرد @${contact.id.user} لمخالفة القوانين (ممنوع الصور/الاستيكر/السب).`, {
                     mentions: [contact]
                 });
 
-                // طرد الشخص (يجب أن يكون البوت أدمن)
+                // تنفيذ الطرد
                 await chat.removeParticipants([contact.id._serialized]);
-                
-                console.log(`تم طرد ${contact.pushname} لمخالفته القوانين.`);
-            } catch (error) {
-                console.log('فشل الطرد: تأكد أن البوت "أدمن" في الجروب.');
+                console.log(`تم طرد المخالف: ${contact.id.user}`);
+            } catch (e) {
+                console.log('خطأ: البوت محتاج يكون "أدمن" عشان يطرد الناس.');
             }
         }
     }
