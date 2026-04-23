@@ -1,98 +1,74 @@
-const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, delay } = require("@whiskeysockets/baileys");
-const pino = require("pino");
-const fs = require('fs');
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
 
-const warnings = {}; // مخزن التحذيرات
-const badWords = ["خول", "عرص", "منيك", "شرموط", "كسمك", "خوال"]; // قائمة الشتايم
-
-async function startAnasBot() {
-    // 1. تنظيف أي جلسة قديمة عشان يربط معاك من أول مرة بالرقم الجديد
-    if (fs.existsSync('anas_auth')) {
-        fs.rmSync('anas_auth', { recursive: true, force: true });
+// 1. إعدادات البوت
+const client = new Client({
+    authStrategy: new LocalAuth(), // لحفظ تسجيل الدخول وميخرجش كل شوية
+    puppeteer: {
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
     }
+});
 
-    const { state, saveCreds } = await useMultiFileAuthState('anas_auth');
-    const { version } = await fetchLatestBaileysVersion();
+// 2. تفعيل الربط برقم الهاتف اللي في الصورة
+client.on('qr', async (qr) => {
+    console.log('جاري طلب كود الربط لرقمك...');
+    try {
+        // طلب كود الربط المكون من 8 رموز
+        let pairingCode = await client.getPairingCode('263785728093'); 
+        console.log('-----------------------------------');
+        console.log('كود الربط الخاص بك هو: ', pairingCode);
+        console.log('افتح الواتساب > الأجهزة المرتبطة > ربط برقم الهاتف ودخل الكود ده');
+        console.log('-----------------------------------');
+    } catch (err) {
+        console.log('خطأ في توليد كود الربط، جرب مرة تانية.');
+    }
+});
 
-    const sock = makeWASocket({
-        version,
-        auth: state,
-        logger: pino({ level: "silent" }),
-        printQRInTerminal: true, 
-        browser: ["Anas Guard", "Safari", "1.0.0"]
-    });
+client.on('ready', () => {
+    console.log('تم تشغيل البوت بنجاح! هو الآن يراقب الجروبات.');
+});
 
-    sock.ev.on("creds.update", saveCreds);
+// 3. نظام الطرد التلقائي (المراقب)
+const badWords = ['شتم1', 'شتم2', 'سب..']; // ضيف هنا الكلمات اللي عايز تمنعها
 
-    sock.ev.on("connection.update", async (update) => {
-        const { connection, qr } = update;
+client.on('message', async (msg) => {
+    const chat = await msg.getChat();
+    const contact = await msg.getContact();
 
-        // 2. ميزة الرابط: افتح الرابط ده من الـ Logs وهتلاقي الـ QR واضح جداً
-        if (qr) {
-            console.log("\n--- الرابط الجديد لمسح الـ QR (واضح جداً) ---");
-            console.log(`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
-            console.log("------------------------------------------\n");
-        }
+    // يشتغل فقط داخل الجروبات
+    if (chat.isGroup) {
+        
+        // أنواع الرسائل الممنوعة (صور، استيكر، ريكورد، فيديو، ملفات)
+        const isForbiddenMedia = msg.hasMedia || 
+                                 msg.type === 'sticker' || 
+                                 msg.type === 'audio' || 
+                                 msg.type === 'ptt' || 
+                                 msg.type === 'video';
 
-        if (connection === "open") {
-            console.log("✅ أخيراً! البوت ارتبط بالرقم الجديد وشغال حماية دلوقتي!");
-        }
-    });
+        // فحص الكلمات الخارجة
+        const containsBadWords = badWords.some(word => msg.body.toLowerCase().includes(word.toLowerCase()));
 
-    // 3. ميزة الصلاة على النبي (تلقائي كل 3 ساعات)
-    setInterval(async () => {
-        try {
-            const groups = Object.keys(await sock.groupFetchAllParticipating());
-            for (let gid of groups) {
-                await sock.sendMessage(gid, { text: "✨ ذكرى اليوم: صَلُّوا عَلَىٰ رَسُولِ اللَّهِ ﷺ" });
-            }
-        } catch (e) { console.log("خطأ في إرسال الذكرى") }
-    }, 1000 * 60 * 60 * 3);
+        if (isForbiddenMedia || containsBadWords) {
+            try {
+                // حذف رسالة المخالف
+                await msg.delete(true);
 
-    sock.ev.on("messages.upsert", async (m) => {
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
-
-        const remoteJid = msg.key.remoteJid;
-        const sender = msg.key.participant || msg.key.remoteJid;
-        const messageType = Object.keys(msg.message)[0];
-        const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || "").toLowerCase();
-
-        // الرقم الجديد له حصانة كاملة (رقمك المطور)
-        const sudoNumber = "263785728093@s.whatsapp.net"; 
-        if (sender === sudoNumber) return;
-
-        // 4. ميزة الاستيكر (ابعت صورة واكتب تحتها ستيكر)
-        if (messageType === 'imageMessage' && text.includes("ستيكر")) {
-            const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-            const buffer = await downloadMediaMessage(msg, 'buffer', {});
-            return await sock.sendMessage(remoteJid, { sticker: buffer }, { quoted: msg });
-        }
-
-        if (!remoteJid.endsWith('@g.us')) return;
-
-        // وظيفة الحذف والتحذير والطرد
-        async function handleViolation(reason) {
-            await sock.sendMessage(remoteJid, { delete: msg.key });
-            if (!warnings[sender]) warnings[sender] = 0;
-            warnings[sender]++;
-
-            if (warnings[sender] >= 3) {
-                await sock.sendMessage(remoteJid, { text: `🚫 @${sender.split('@')[0]} تجاوزت 3 تحذيرات بسبب (${reason}).. تم الطرد!`, mentions: [sender] });
-                await sock.groupParticipantsUpdate(remoteJid, [sender], "remove");
-                warnings[sender] = 0; 
-            } else {
-                await sock.sendMessage(remoteJid, { 
-                    text: `⚠️ يا @${sender.split('@')[0]} ممنوع (${reason}).\nالتحذير رقم (${warnings[sender]}/3).`, 
-                    mentions: [sender] 
+                // إرسال تنبيه في الجروب
+                await chat.sendMessage(`⚠️ تم طرد @${contact.id.user} بسبب إرسال محتوى ممنوع أو سب.`, {
+                    mentions: [contact]
                 });
+
+                // طرد الشخص (يجب أن يكون البوت أدمن)
+                await chat.removeParticipants([contact.id._serialized]);
+                
+                console.log(`تم طرد ${contact.pushname} لمخالفته القوانين.`);
+            } catch (error) {
+                console.log('فشل الطرد: تأكد أن البوت "أدمن" في الجروب.');
             }
         }
+    }
+});
 
-        // فحص الشتائم والروابط
-        if (badWords.some(word => text.includes(word))) return await handleViolation("السب والقذف");
-        if (/(https?:\/\/[^\s]+)/g.test(text)) return await handleViolation("إرسال روابط");
-    });
-}
-
-startAnasBot().catch(err => console.log("خطأ في التشغيل: " + err));
+// تشغيل البوت
+client.initialize();
